@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta content="text/html;charset=utf-8" http-equiv="Content-Type" />
+	<meta content="utf-8" http-equiv="encoding" />
+	<title>Brick Breaker!</title>
+</head>
+<body>
+<canvas id="gameCanvas" width="800" height="600"></canvas>
+
+<script>
+const PADDLE_WIDTH = 100;
+const PADDLE_THICKNESS = 10;
+const PADDLE_DISTANCE_FROM_EDGE = 60;
+const BALL_SPEED = 8;
+const BRICK_WIDTH = 80;
+const BRICK_HEIGHT = 20;
+const BRICK_COLUMNS = 10;
+const BRICK_ROWS = 14;
+const BRICK_GAP = 2;
+const LIVES = 3;
+
+let canvas, canvasContext;
+let ballX, ballY, ballSpeedX, ballSpeedY;
+let paddleX;
+
+let bricks = [];
+let bricksRemaining = 0;
+let livesRemaining = LIVES;
+let paused = true;
+let gameLoaded = false;
+
+window.onload = function () {
+	canvas = document.getElementById('gameCanvas');
+	canvasContext = canvas.getContext('2d');
+	paddleX = (canvas.width / 2) - (PADDLE_WIDTH / 2);
+
+	setInterval(function () {
+		move();
+		draw();
+	}, 1000/30); // 30 FPS
+
+	canvas.addEventListener('mouseup', unpause);
+	canvas.addEventListener('mousemove', updateMousePosition);
+};
+
+const resetBall = function () {
+	ballSpeedX = 0;
+	ballSpeedY = BALL_SPEED;
+	ballX = canvas.width / 2;
+	ballY = canvas.height / 2;
+};
+
+const resetBricks = function () {
+	// Skip first 3 rows
+	bricks = [];
+	let i;
+	for (i = 0; i < 3 * BRICK_COLUMNS; i++) {
+		bricks.push(false);
+	}
+	for (; i < BRICK_COLUMNS * BRICK_ROWS; i++) {
+		bricks.push(true);
+		bricksRemaining++;
+	}
+};
+
+const unpause = function (event) {
+	if (!paused) {
+		return;
+	}
+
+	gameLoaded = true;
+	livesRemaining = LIVES;
+	resetBall();
+	resetBricks();
+	paused = false;
+};
+
+const updateMousePosition = function (event) {
+	const rect = canvas.getBoundingClientRect();
+	const root = document.documentElement;
+	let mouseX = event.clientX - rect.left - root.scrollLeft;
+	paddleX = mouseX - (PADDLE_WIDTH / 2);
+};
+
+const showMenu = function () {
+	if (!gameLoaded) {
+		createText('Welcome to Brick Breaker. Click to begin.', 100, 100, '#ffffff');
+	} else {
+		if (livesRemaining === 0) {
+			createText('You lose! Click to restart.', 100, 100, '#ffffff');
+		}
+		if (bricksRemaining === 0) {
+			createText('You win! Click to restart', 100, 100, '#ffffff');
+		}
+	}
+	return;
+};
+
+const draw = function () {
+	// Create canvas
+	createRect(0, 0, canvas.width, canvas.height, '#000000');
+
+	if (paused) {
+		showMenu();
+		return;
+	}
+
+	// Create ball
+	createCircle(ballX, ballY, 10, '#ffffff');
+	// Create paddle
+	createRect(paddleX, canvas.height - PADDLE_DISTANCE_FROM_EDGE, PADDLE_WIDTH, PADDLE_THICKNESS, '#ffffff');
+	// Show lives remaining
+	createText('Balls Remaining: ' + livesRemaining, 8, canvas.height - 8, '#ffffff')
+	// Create bricks
+	drawBricks();
+};
+
+const move = function () {
+	if (paused) {
+		return;
+	}
+
+	ballX += ballSpeedX;
+	ballY += ballSpeedY;
+
+	checkEdgeCollision();
+	checkBrickCollision();	
+	checkPaddleCollision();
+};
+
+const checkEdgeCollision = function () {
+	if ((ballX > canvas.width && ballSpeedX > 0) || (ballX < 0 && ballSpeedX < 0)) { // Left and right bounce
+		ballSpeedX *= -1;
+	}
+	if (ballY < 0 && ballSpeedY < 0) { // Top bounce
+		ballSpeedY *= -1;
+	}
+	if (ballY > canvas.height) { // Bottom bounce
+		if (livesRemaining === 0) {
+			paused = true;
+		} else {
+			livesRemaining--;
+			resetBall();
+		}
+	}
+};
+
+const checkBrickCollision = function () {
+	const ballColumn = Math.floor(ballX / BRICK_WIDTH);
+	const ballRow = Math.floor(ballY / BRICK_HEIGHT);
+	const brickIndex = getIndexForColumnAndRow(ballColumn, ballRow);
+	if (brickIndex > 0 && bricks[brickIndex]) {
+		bricks[brickIndex] = false;
+		bricksRemaining--;
+
+		// Calculate where the ball came from
+		const previousColumn = Math.floor((ballX - ballSpeedX) / BRICK_WIDTH);
+		const previousRow = Math.floor((ballY - ballSpeedY) / BRICK_HEIGHT);
+
+		// If there is an adjacent brick, the ball hit a flat surface so don't reverse direction
+		const adjacentBrickX = getIndexForColumnAndRow(previousColumn, ballRow);
+		const adjacentBrickY = getIndexForColumnAndRow(ballColumn, previousRow);
+		if (previousColumn !== ballColumn && !bricks[adjacentBrickX]) {
+			ballSpeedX *= -1;
+		}
+		if (previousRow !== ballRow && !bricks[adjacentBrickY]) {
+			ballSpeedY *= -1;
+		}
+		// If there are adjacent bricks on both edges, bounce diagonally
+		if (bricks[adjacentBrickY] && bricks[adjacentBrickX]) {
+			ballSpeedX *= -1;
+			ballSpeedY *= -1;
+		}
+	}
+};
+
+const checkPaddleCollision = function () {
+	const paddleTop = canvas.height - PADDLE_DISTANCE_FROM_EDGE;
+	const paddleBottom = paddleTop + PADDLE_THICKNESS;
+	const paddleLeft = paddleX;
+	const paddleRight = paddleX + PADDLE_WIDTH;
+	if (ballY > paddleTop && ballY < paddleBottom && ballX > paddleLeft && ballX < paddleRight) {
+		ballSpeedY *= -1;
+		// Calculate X velocity based on what part of the paddle gets hit
+		const deltaX = ballX - (paddleX + (PADDLE_WIDTH / 2));
+		ballSpeedX = deltaX * 0.35;
+
+		if (bricksRemaining === 0) {
+			paused = true;
+		}
+	}
+};
+
+const drawBricks = function () {
+	const colors = ['#ff99ff', '#ff99cc', '#ff6666', '#ff9966', '#ffcc66', '#ffff99', '#ccff99', '#99ff99', '#99ffcc', '#66ffff', '#66ccff', '#99ccff', '#cc99ff'];
+	bricks.forEach(function (brick, index) {
+		const column = index % BRICK_COLUMNS;
+		const row = Math.floor(index / BRICK_COLUMNS);
+
+		if (brick) {
+			createRect(BRICK_WIDTH * column, BRICK_HEIGHT * row, BRICK_WIDTH - BRICK_GAP, BRICK_HEIGHT - BRICK_GAP, colors[row % colors.length]);
+		}
+	});
+};
+
+const getIndexForColumnAndRow = function (column, row) {
+	// make sure column/row are within bounds
+	if (column >= 0 && column < BRICK_COLUMNS && row >= 0 && row < BRICK_ROWS) {
+		return column + BRICK_COLUMNS * row;
+	} else {
+		return -1;
+	}
+};
+
+const createRect = function (x, y, width, height, color) {
+	canvasContext.fillStyle = color;
+	canvasContext.fillRect(x, y, width, height);
+};
+
+const createCircle = function (x, y, radius, color) {
+	canvasContext.fillStyle = color;
+	canvasContext.beginPath();
+	canvasContext.arc(x, y, radius, 0, 2*Math.PI, true);
+	canvasContext.fill();
+};
+
+const createText = function (text, x, y, color) {
+	canvasContext.fillStyle = color;
+	canvasContext.fillText(text, x, y);
+};
+
+</script>
+</body>
+</html>
